@@ -209,17 +209,20 @@
 
   // Helper function to get the number of transactions safely
   function getTransactionCount(block) {
-       return (block.Transactions && Array.isArray(block.Transactions)) ? block.Transactions.length : 0;
+       // Use lowercase 'transactions' property
+       return (block.transactions && Array.isArray(block.transactions)) ? block.transactions.length : 0;
   }
 
 
   // Helper function to get the block color based on its properties (especially transaction count for PoW blocks)
   function getBlockColor(block) {
       const color = new THREE.Color();
+      // Use lowercase properties
       const txCount = getTransactionCount(block);
-      const powValid = isHashValid(block.Hash, DIFFICULTY);
+      const powValid = isHashValid(block.hash, DIFFICULTY); // Use lowercase 'hash'
 
-      if (block.Index === 0) {
+      // Use lowercase property
+      if (block.index === 0) {
           // Genesis block
           color.setHex(COLOR_GENESIS);
           // Optional: Add slight random variation even to genesis for visual appeal
@@ -229,6 +232,7 @@
            hsl.l = Math.max(0.1, Math.min(0.9, hsl.l)); // Clamp
            color.setHSL(hsl.h, hsl.s, hsl.l);
 
+      // Use lowercase property
       } else if (powValid) {
           // Mined block with valid Proof of Work (Expected in Mode 3)
           color.setHex(COLOR_MINED_VALID);
@@ -495,7 +499,8 @@
 
           // Create texture with the block index number and the determined background color
           // createTextTexture now handles potential undefined Index safely
-          const indexTexture = createTextTexture(block.Index, blockColor);
+          // Use lowercase 'index' property
+          const indexTexture = createTextTexture(block.index, blockColor);
 
            // Create a material for this block using the textured canvas
           const blockMaterial = new THREE.MeshPhongMaterial({
@@ -667,28 +672,31 @@
 
               if (block) { // Make sure we found the data
                   // Format tooltip content
+                  // *** FIX START: Use lowercase property names from JSON ***
                   let tooltipContent = `
-                      <strong>Block ${block.Index}</strong>
-                      <p>Timestamp: ${block.Timestamp}</p>
-                      <p>Nonce: ${block.Nonce}</p>
-                      <p>Hash: ${block.Hash ? block.Hash.substring(0, 12) + '...' + block.Hash.substring(block.Hash.length - 6) : 'N/A'}</p> <!-- Abbreviate hash -->
-                      <p>PrevHash: ${block.PrevHash ? block.PrevHash.substring(0, 12) + '...' + block.PrevHash.substring(block.PrevHash.length - 6) : 'N/A'}</p> <!-- Abbreviate prev hash -->
-                      <p>Valid Proof of Work: <strong>${isHashValid(block.Hash, DIFFICULTY) ? 'YES' : 'NO'}</strong></p>
+                      <strong>Block ${block.index}</strong>
+                      <p>Timestamp: ${block.timestamp}</p>
+                      <p>Nonce: ${block.nonce}</p>
+                      <p>Hash: ${block.hash ? block.hash.substring(0, 12) + '...' + block.hash.substring(block.hash.length - 6) : 'N/A'}</p> <!-- Abbreviate hash -->
+                      <p>PrevHash: ${block.prevHash ? block.prevHash.substring(0, 12) + '...' + block.prevHash.substring(block.prevHash.length - 6) : 'N/A'}</p> <!-- Abbreviate prev hash -->
+                      <p>Valid Proof of Work: <strong>${isHashValid(block.hash, DIFFICULTY) ? 'YES' : 'NO'}</strong></p>
                   `;
 
                    // Add transaction details if they exist
-                   const transactions = getTransactionCount(block) > 0 ? block.Transactions : [];
+                   // Use lowercase 'transactions' property
+                   const transactions = getTransactionCount(block) > 0 ? block.transactions : [];
 
                    if (transactions.length > 0) {
                        tooltipContent += `<div class="transactions-list"><strong>Transactions (${transactions.length}):</strong>`;
+                       // Loop over the lowercase 'transactions' array
                        transactions.forEach((tx, txIndex) => {
                            tooltipContent += `
                                <div class="transaction-item">
-                                  <p><strong>#${txIndex + 1}:</strong> ${tx.Sender} -> ${tx.Recipient}</p>
-                                  <p>Amount: ${tx.Amount}</p>
-                                  <p>ID: ${tx.ID ? tx.ID.substring(0, 8) + '...' : 'N/A'}</p> <!-- Abbreviate Tx ID -->
+                                  <p><strong>#${txIndex + 1}:</strong> ${tx.sender} -> ${tx.recipient}</p> <!-- Use lowercase properties -->
+                                  <p>Amount: $${tx.amount}.00</p> <!-- Use lowercase properties -->
+                                  <p>ID: ${tx.id ? tx.id.substring(0, 8) + '...' : 'N/A'}</p> <!-- Use lowercase properties, Abbreviate Tx ID -->
                                   <!-- Optional: Include Transaction Timestamp -->
-                                  <!-- <p>Tx Timestamp: ${tx.Timestamp}</p> -->
+                                  <!-- <p>Tx Timestamp: ${tx.timestamp}</p> --> <!-- Use lowercase property if uncommented -->
                                </div>
                            `;
                        });
@@ -696,6 +704,7 @@
                    } else {
                        tooltipContent += `<p>No transactions in this block.</p>`;
                    }
+                    // *** FIX END ***
 
                   // Set tooltip HTML
                   tooltip.innerHTML = tooltipContent;
