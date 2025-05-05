@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>3D Blockchain Visualization</title>
+  <style>
+    body { margin: 0; overflow: hidden; /* Hide scroll bars */ }
+    canvas { display: block; } /* Make canvas fill the container */
+    #info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: white;
+        font-family: sans-serif;
+        pointer-events: none; /* Don't block mouse events for the canvas */
+        z-index: 1; /* Ensure it's above the canvas but below tooltip */
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5); /* Make text more readable */
+    }
+
+    /* New styles for mining status */
+    #mining-status {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        color: white;
+        font-family: sans-serif;
+        z-index: 1;
+        text-align: right; /* Align text to the right */
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+
+    #mining-progress-container {
+        width: 200px; /* Fixed width for the progress bar */
+        height: 15px;
+        background-color: rgba(255, 255, 255, 0.3); /* Semi-transparent white background */
+        border-radius: 5px;
+        margin-top: 5px;
+        overflow: hidden; /* Hide overflow of the progress bar */
+        /* display: block; */ /* Keep visible potentially, or control from JS */
+    }
+
+    #mining-progress-bar {
+        height: 100%;
+        width: 0%; /* Starts empty */
+        background-color: #28a745; /* Bootstrap green - matches successful block color */
+        transition: width 0.3s ease-in-out; /* Smooth animation */
+    }
+
+    #mining-message {
+        margin-top: 5px;
+        font-size: 0.9em; /* Slightly smaller text */
+        /* display: block; */ /* Keep visible potentially, or control from JS */
+    }
+
+
+    /* Add the tooltip styling */
+    .tooltip {
+      position: absolute;
+      background-color: rgba(0, 0, 0, 0.8); /* Semi-transparent black */
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      pointer-events: none; /* Crucial: Don't interfere with mouse events on the canvas */
+      opacity: 0; /* Start hidden */
+      transition: opacity 0.2s ease-in-out; /* Smooth fade */
+      z-index: 10; /* Ensure it's above everything else */
+      font-family: sans-serif;
+      font-size: 12px;
+      max-width: 400px; /* Prevent overly wide tooltips */
+      /* Removed white-space: nowrap; and overflow/text-overflow for better wrapping in tooltip */
+      line-height: 1.5; /* Improve readability */
+    }
+     /* Style for the block data inside the tooltip */
+    .tooltip strong {
+        display: block; /* Make the title bold and on its own line */
+        margin-bottom: 5px;
+        font-size: 14px;
+    }
+     /* Style for the individual data lines */
+    .tooltip p {
+        margin: 0;
+        padding: 0;
+        white-space: normal; /* Allow wrapping within lines */
+        word-break: break-all; /* Break long words if needed */
+    }
+  </style>
+
+  <!-- Use type="importmap" to define how bare specifiers are resolved -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.164.1/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+      }
+    }
+  </script>
+
+</head>
+<body>
+  <!-- Info div -->
+  <div id="info">Loading blockchain...</div>
+
+  <!-- Add the mining status div -->
+  <div id="mining-status">
+      <div id="mined-count"></div>
+      <div id="mining-progress-container">
+          <div id="mining-progress-bar"></div>
+      </div>
+      <div id="mining-message"></div>
+  </div>
+
+
+  <!-- Add the tooltip div -->
+  <div id="block-tooltip" class="tooltip"></div>
+
+  <!-- Use type="module" for your main script -->
+  <script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  // Declare variables outside init so they are accessible in event handlers
+  let scene, camera, renderer, controls;
+  const blockMeshes = []; // Store block meshes for raycasting
+  const blockDataMap = new Map(); // Map mesh UUID to block data
+  const arrowHelpers = []; // Store arrow helpers to clear them on re-fetch
+  let tooltip; // Will hold the HTML tooltip element
+  let raycaster; // For detecting mouse intersection with objects
+  let mouse;     // To store normalized mouse coordinates
+  let intersectedObject = null; // To track the currently hovered object
+
+  // Status Elements
+  let minedCountElement;
+  let progressBarContainerElement;
+  let progressBarElement;
+  let miningMessageElement;
+
+  // --- Configuration (Match Go server) ---
+  const DIFFICULTY = 5; // Number of leading zeros required for a valid hash
+  const TOTAL_BLOCKS_TO_MINE_AUTOMATIC = 100; // Number of blocks AFTER genesis
+  const EXPECTED_TOTAL_BLOCKS = TOTAL_BLOCKS_TO_MINE_AUTOMATIC + 1; // Genesis + Mined
+
+  // Base Colors (Hex format)
+  const BASE_COLOR_MINED = 0x28a745; // Green for successfully mined blocks (matches progress bar)
+  const BASE_COLOR_OTHER = 0x007bff; // Blue for other blocks (genesis, manual)
+
+  // --- Money-based Scaling Configuration ---
+  const MIN_MONEY = 1;
+  const MAX_MONEY = 500000;
+
+  // Scale Configuration
+  const BASE_BLOCK_SIZE = 2; // Original size of the BoxGeometry
+  const MIN_BLOCK_SCALE = 1.0; // Minimum scale factor for a block (at MIN_MONEY)
+  const MAX_BLOCK_SCALE = 2.0; // Maximum scale factor for a block (at MAX_MONEY)
+
+  // Color Lightness Configuration (for MINED blocks only)
+  // HSL Lightness ranges from 0.0 (black) to 1.0 (white)
+  // We want greenness to increase with Money, so higher Money -> higher lightness
+  const MINED_LIGHTNESS_MIN = 0.3; // HSL Lightness at MIN_MONEY for mined blocks
+  const MINED_LIGHTNESS_MAX = 0.7; // HSL Lightness at MAX_MONEY for mined blocks
+  const OTHER_LIGHTNESS_VARIATION_RANGE = 0.15; // Random variation for non-mined blocks
+
+
+  // --- State Variable to track blockchain changes ---
+  let previousBlockCount = -1; // Initialize to -1 so the first fetch always triggers visualization
+
+  // Helper function for linear interpolation (mapping a value from one range to another)
+  function mapRange(value, inMin, inMax, outMin, outMax) {
+    value = Math.max(inMin, Math.min(inMax, value)); // Clamp value to input range
+    const normalizedValue = (value - inMin) / (inMax - inMin); // Normalize to 0-1
+    return outMin + normalizedValue * (outMax - outMin); // Map to output range
+  }
+
+
+  function init() {
+      // Initialize Three.js related variables *inside* init
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xf0f0f0);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.z = 20;
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+      scene.add(ambientLight);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7); // Brighter directional light
+      directionalLight.position.set(1, 1, 1).normalize();
+      scene.add(directionalLight);
+
+      // Initialize tooltip element
+      tooltip = document.getElementById('block-tooltip');
+      if (!tooltip) {
+          console.error("Tooltip element #block-tooltip not found!");
+          // Create it if it's somehow missing (fallback)
+          tooltip = document.createElement('div');
+          tooltip.id = 'block-tooltip';
+          tooltip.classList.add('tooltip');
+          document.body.appendChild(tooltip);
+      }
+
+      // Get references to status elements
+      minedCountElement = document.getElementById('mined-count');
+      progressBarContainerElement = document.getElementById('mining-progress-container');
+      progressBarElement = document.getElementById('mining-progress-bar');
+      miningMessageElement = document.getElementById('mining-message');
+
+      // Initial state for status elements
+      minedCountElement.textContent = 'Blocks: 0/0';
+      progressBarContainerElement.style.display = 'block'; // Show progress bar container
+      progressBarElement.style.width = '0%'; // Reset progress bar
+      miningMessageElement.textContent = 'Waiting for data...'; // Default message
+
+
+      // Initialize raycaster and mouse
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+
+      // OrbitControls
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.25;
+      controls.screenSpacePanning = false;
+      // controls.maxPolarAngle = Math.PI / 2; // Keep camera above the "ground"
+
+
+      // Event Listeners
+      window.addEventListener('resize', onWindowResize);
+      renderer.domElement.addEventListener('mousemove', onMouseMove); // For tooltip interaction
+
+      // Animation Loop
+      animate();
+
+      // Start monitoring blockchain (fetching periodically)
+      startMonitoring();
+  }
+
+  // Helper function to get the block color based on its properties (especially Money)
+  function getBlockColor(block) {
+      const color = new THREE.Color();
+      const isMined = block.Index > 0 && isHashValid(block.Hash, DIFFICULTY);
+
+      if (isMined) {
+          // For mined blocks, scale lightness based on Money
+          color.setHex(BASE_COLOR_MINED);
+          const hsl = {};
+          color.getHSL(hsl);
+
+          // Calculate target lightness based on Money value
+          const targetLightness = mapRange(block.Money, MIN_MONEY, MAX_MONEY, MINED_LIGHTNESS_MIN, MINED_LIGHTNESS_MAX);
+
+          // Set the lightness, potentially adding a small random variation
+          hsl.l = targetLightness + (Math.random() * OTHER_LIGHTNESS_VARIATION_RANGE * 0.5) - (OTHER_LIGHTNESS_VARIATION_RANGE * 0.25); // Small random nudge
+           // Clamp lightness again after the nudge
+          hsl.l = Math.max(0.05, Math.min(0.95, hsl.l)); // Clamp within a reasonable range
+
+          color.setHSL(hsl.h, hsl.s, hsl.l);
+
+      } else {
+          // For non-mined blocks (genesis or invalid PoW), use the other color with random variation
+          color.setHex(BASE_COLOR_OTHER);
+          const hsl = {};
+          color.getHSL(hsl);
+
+          // Apply random lightness variation
+          hsl.l += (Math.random() * OTHER_LIGHTNESS_VARIATION_RANGE * 2) - OTHER_LIGHTNESS_VARIATION_RANGE; // Value between -range and +range
+
+          // Clamp lightness to stay within reasonable bounds
+          hsl.l = Math.max(0.3, Math.min(0.7, hsl.l)); // Keep lightness between 0.3 and 0.7
+
+          color.setHSL(hsl.h, hsl.s, hsl.l);
+      }
+
+      return color;
+  }
+
+
+   // Helper function to check if a hash meets the difficulty criteria (has enough leading zeros)
+  function isHashValid(hash, difficulty) {
+      if (!hash || typeof hash !== 'string' || hash.length < difficulty) {
+          return false; // Hash is empty, not a string, too short, or null
+      }
+      const prefix = '0'.repeat(difficulty);
+      return hash.startsWith(prefix);
+  }
+
+
+  // Helper function to create a texture with text on a canvas with a COLORED background
+  // backgroundColor is a THREE.Color object
+  function createTextTexture(text, backgroundColor, canvasSize = 128) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasSize;
+      canvas.height = canvasSize;
+      const ctx = canvas.getContext('2d');
+
+      // --- Draw the background color ---
+      ctx.fillStyle = backgroundColor.getStyle(); // Use the color object's style string
+      ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+      // Set text properties
+      ctx.font = `Bold ${canvasSize / 3}px Arial`;
+      ctx.fillStyle = '#000000'; // Black text
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Draw text
+      ctx.fillText(text.toString(), canvasSize / 2, canvasSize / 2);
+
+      // Create texture from canvas
+      const texture = new THREE.CanvasTexture(canvas);
+
+      // Set texture filters for better quality when scaled
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.needsUpdate = true; // Texture needs to be updated after the canvas is drawn to
+
+      return texture;
+  }
+
+
+  let fetchInterval; // To store the interval timer ID
+
+  function startMonitoring() {
+       document.getElementById('info').innerHTML = 'Connecting to blockchain server...';
+       // Fetch immediately, then set interval
+       fetchBlockchain();
+
+       // Poll the blockchain endpoint every 500ms (more responsive during fast mining)
+       fetchInterval = setInterval(fetchBlockchain, 500); // Reduced interval for faster updates
+  }
+
+  function fetchBlockchain() {
+      fetch("http://localhost:8081/blockchain")
+          .then(response => {
+              if (!response.ok) {
+                  // If server responds with an error
+                  throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              return response.json();
+          })
+          .then(data => {
+            const blockchain = data.blockchain;
+            const totalBlocksToMine = data.totalBlocksToMine; // Get the dynamic value from the server
+
+             // console.log("Fetched Blockchain Data:", data); // Avoid spamming console
+             document.getElementById('info').innerHTML = `Blockchain loaded. ${data.blockchain.length} blocks found.`;
+
+            // --- ONLY Visualize if the number of blocks has changed ---
+            if (data.blockchain.length !== previousBlockCount) {
+                visualizeBlockchain(blockchain); // Update the 3D visualization
+                previousBlockCount = data.blockchain.length; // Update the state variable
+            }
+
+            // Update the TOTAL_BLOCKS_TO_MINE_AUTOMATIC dynamically
+            const TOTAL_BLOCKS_TO_MINE_AUTOMATIC = totalBlocksToMine;
+
+              // --- Update Mining Status (always update status, even if visualization doesn't change) ---
+              const currentBlockCount = blockchain.length;
+              const minedCount = currentBlockCount > 0 ? currentBlockCount - 1 : 0; // Exclude genesis block from mined count
+
+
+               minedCountElement.textContent = `Blocks: ${(minedCount)}/${TOTAL_BLOCKS_TO_MINE_AUTOMATIC}`;
+               progressBarContainerElement.style.display = 'block'; // Always show progress bar container
+               miningMessageElement.style.display = 'block'; // Always show mining message
+
+
+               if (currentBlockCount <= EXPECTED_TOTAL_BLOCKS) {
+                  // During automatic mining or just finished
+                   // Note: ProgressBar max is hardcoded based on TOTAL_BLOCKS_TO_MINE_AUTOMATIC
+                   // If the total blocks exceeds this because of manual mining, the bar stays full.
+                  const progress = ((minedCount) / TOTAL_BLOCKS_TO_MINE_AUTOMATIC) * 100;
+                  progressBarElement.style.width = `${progress}%`;
+
+                   if (currentBlockCount < EXPECTED_TOTAL_BLOCKS) {
+                      // Still mining
+                       // Use the last block's index + 1 for the block being mined
+                      const blockBeingMinedIndex = currentBlockCount; // If current count is 1 (genesis), next is 1, etc.
+                      miningMessageElement.textContent = `Mining block ${blockBeingMinedIndex}...`; // Indicate mining is active
+                   } else {
+                       // Mining complete
+                       progressBarElement.style.width = '100%';
+                       miningMessageElement.textContent = 'Automatic Mining Complete!';
+                       // We keep polling for a bit longer just in case the Go server adds blocks manually after auto mode finishes
+                       // clearInterval(fetchInterval); // Don't stop polling immediately
+                   }
+              } else {
+                   // After automatic mining is finished and maybe more blocks were added manually
+                   minedCountElement.textContent = `Blocks: ${currentBlockCount - 1} (incl. manual)`; // Display total blocks mined (including manual ones)
+                   progressBarElement.style.width = '100%'; // Keep full bar if more blocks exist than expected
+                   miningMessageElement.textContent = 'Manual blocks added or exceeded automatic count.';
+                   // clearInterval(fetchInterval); // Could stop here if you only care about the initial auto mining
+              }
+
+
+          })
+          .catch(err => {
+              console.error("Error fetching blockchain:", err);
+              // Display error in the info div and status
+              document.getElementById('info').innerHTML = '<span style="color: red;">Error loading blockchain data. Make sure the Go server is running on port 8081.</p>';
+              minedCountElement.textContent = 'Status: Disconnected';
+              progressBarContainerElement.style.display = 'none';
+              miningMessageElement.textContent = 'Could not connect to server.';
+              clearInterval(fetchInterval); // Stop polling on error
+          });
+  }
+
+  function visualizeBlockchain(data) {
+      const blockSpacing = 5; // Base space between block centers
+
+      // Dispose of old textures and materials before clearing meshes
+      blockMeshes.forEach(mesh => {
+          if (mesh.material) {
+              // Handle both single material and array of materials
+              const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+              materials.forEach(material => {
+                  if (material.map) {
+                      material.map.dispose(); // Dispose texture
+                  }
+                  material.dispose(); // Dispose material
+              });
+          }
+           scene.remove(mesh);
+      });
+      blockMeshes.length = 0; // Clear the array
+      blockDataMap.clear(); // Clear the map
+
+      arrowHelpers.forEach(arrow => scene.remove(arrow));
+      arrowHelpers.length = 0; // Clear the array
+
+      const blockGeometry = new THREE.BoxGeometry(BASE_BLOCK_SIZE, BASE_BLOCK_SIZE, BASE_BLOCK_SIZE);
+
+      // Track previous block's position and scale to calculate current block's position
+      let currentX = 0;
+      let prevBlockHalfWidth = 0; // Half width of the previous block (scaled)
+
+      data.forEach((block, index) => {
+          // Get the color based on the block's properties (including money for mined blocks)
+          const blockColor = getBlockColor(block);
+
+          // Create texture with the block index number and the determined background color
+          const indexTexture = createTextTexture(block.Index, blockColor);
+
+           // Create a material for this block using the textured canvas
+          const blockMaterial = new THREE.MeshPhongMaterial({
+               color: 0xffffff, // White material color so the texture colors show through directly
+               shininess: 50,
+               map: indexTexture, // The texture with text on a colored background
+               transparent: false,
+               alphaTest: 0
+          });
+
+          const blockMesh = new THREE.Mesh(blockGeometry, blockMaterial);
+
+          // --- Calculate Scale based on Money ---
+          const scale = mapRange(block.Money, MIN_MONEY, MAX_MONEY, MIN_BLOCK_SCALE, MAX_BLOCK_SCALE);
+          blockMesh.scale.set(scale, scale, scale);
+
+          // --- Calculate Position based on previous block's size and scale ---
+          const currentBlockHalfWidth = (BASE_BLOCK_SIZE * scale) / 2;
+          if (index > 0) {
+              // Position relative to the right face of the previous block + half width of current block + spacing
+              currentX += prevBlockHalfWidth + currentBlockHalfWidth + blockSpacing;
+          } else {
+              // First block starts at X=0
+              currentX = 0;
+          }
+
+          blockMesh.position.x = currentX;
+          blockMesh.position.y = 0;
+          blockMesh.position.z = 0;
+
+          // Store current block's half width for the next iteration
+          prevBlockHalfWidth = currentBlockHalfWidth;
+
+
+          scene.add(blockMesh);
+          blockMeshes.push(blockMesh); // Add to the list for raycasting
+          blockDataMap.set(blockMesh.uuid, block); // Store data reference
+      });
+
+      // --- Adjust Camera Position and Controls Target ---
+      if (data.length > 0) {
+           // Calculate the overall span of the chain
+           const firstBlockX = blockMeshes[0].position.x - (BASE_BLOCK_SIZE * blockMeshes[0].scale.x / 2);
+           const lastBlockX = blockMeshes[blockMeshes.length - 1].position.x + (BASE_BLOCK_SIZE * blockMeshes[blockMeshes.length - 1].scale.x / 2);
+           const chainLengthSpan = lastBlockX - firstBlockX;
+           const centerOfChainX = firstBlockX + chainLengthSpan / 2;
+
+
+           camera.position.x = centerOfChainX; // Center camera on the chain X span
+           camera.position.y = Math.max(10, chainLengthSpan * 0.1); // Lift camera slightly, scale with chain length
+           camera.position.z = Math.max(chainLengthSpan * 0.8, 20); // Position camera back Z, scale with chain length
+
+           controls.target.set(centerOfChainX, 0, 0); // Set controls target to center of chain
+
+           // --- Explicitly set max zoom-out distance ---
+           // Set maxDistance relative to the length of the chain span
+           controls.maxDistance = chainLengthSpan * 2 + 50; // Add some buffer to the max distance
+           controls.minDistance = 1; // Allow zooming in close, but not inside the block
+
+           controls.update(); // Update controls after changing target/position/distance limits
+      } else {
+           // Reset camera for no blocks
+           camera.position.set(0, 5, 20);
+           controls.target.set(0, 0, 0);
+           // Reset maxDistance as well if no blocks
+           controls.maxDistance = 1000; // A reasonable default max distance
+            controls.minDistance = 1;
+           controls.update();
+           document.getElementById('info').innerHTML = 'No blocks found in the blockchain.';
+      }
+
+
+      // --- Create Links (connecting arrows) ---
+      const arrowColor = 0x343a40; // Dark grey color
+      // Adjust head size relative to average block size and spacing
+      const averageScale = (MIN_BLOCK_SCALE + MAX_BLOCK_SCALE) / 2;
+      const averageBlockSize = BASE_BLOCK_SIZE * averageScale;
+
+      // Base dimensions for arrow head, scale slightly with chain length
+      const baseArrowHeadLength = averageBlockSize * 0.5;
+      const baseArrowHeadWidth = averageBlockSize * 0.3;
+
+
+      for (let i = 1; i < data.length; i++) {
+          const prevBlockMesh = blockMeshes[i - 1];
+          const currentBlockMesh = blockMeshes[i];
+
+          // Calculate the start and end points of the arrow in world space
+          // Start point: Right face of the previous block (+ half * scaled size in X)
+          const origin = prevBlockMesh.position.clone().add(new THREE.Vector3(prevBlockMesh.scale.x * BASE_BLOCK_SIZE / 2, 0, 0));
+          // End point: Left face of the current block (- half * scaled size in X)
+          const endPoint = currentBlockMesh.position.clone().add(new THREE.Vector3(-currentBlockMesh.scale.x * BASE_BLOCK_SIZE / 2, 0, 0));
+
+          // Calculate the direction vector and length
+          const direction = new THREE.Vector3().subVectors(endPoint, origin);
+          const length = direction.length();
+          direction.normalize(); // Normalize the direction vector
+
+           // Create the ArrowHelper
+          // Ensure length is positive before creating the arrow
+          if (length > 0) {
+              const arrowHelper = new THREE.ArrowHelper(
+                  direction,
+                  origin,
+                  length,
+                  arrowColor,
+                  baseArrowHeadLength * Math.min(length / baseArrowHeadLength, 1), // Prevent head being longer than shaft
+                  baseArrowHeadWidth * Math.min(length / baseArrowHeadWidth, 1)
+              );
+
+              scene.add(arrowHelper);
+              arrowHelpers.push(arrowHelper); // Store the arrow helper
+          }
+      }
+  }
+
+  function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // Mouse move handler for raycasting and tooltip
+  function onMouseMove(event) {
+      // Calculate mouse position in normalized device coordinates (-1 to +1)
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      // Update the picking ray with the camera and mouse position
+      raycaster.setFromCamera(mouse, camera);
+
+      // Calculate objects intersecting the picking ray
+      // We only care about block meshes
+      const intersects = raycaster.intersectObjects(blockMeshes);
+
+      if (intersects.length > 0) {
+          // If we intersect an object and it's different from the last one
+          if (intersectedObject != intersects[0].object) {
+
+              intersectedObject = intersects[0].object;
+
+              const block = blockDataMap.get(intersectedObject.uuid);
+
+              if (block) { // Make sure we found the data
+                  // Format and show tooltip
+                   tooltip.innerHTML = `
+                      <strong>Block ${block.Index}</strong>
+                      <p>Timestamp: ${block.Timestamp}</p>
+                      <p>Money: ${block.Money}</p>
+                      <p>Nonce: ${block.Nonce}</p>
+                      <p>Hash: ${block.Hash ? block.Hash : 'N/A'}</p> <!-- Show full hash in tooltip -->
+                      <p>PrevHash: ${block.PrevHash ? block.PrevHash : 'N/A'}</p> <!-- Show full prev hash -->
+                      <p>Valid Proof of Work: <strong>${isHashValid(block.Hash, DIFFICULTY) ? 'YES' : 'NO'}</strong></p>
+                  `;
+
+                  // Position tooltip near the mouse (relative to viewport)
+                  // Add offsets to prevent it from being directly under the cursor
+                  const tooltipX = event.clientX + 15;
+                  const tooltipY = event.clientY - 15; // Position above and to the right
+
+                  // Adjust position to keep it within viewport bounds
+                  const tooltipWidth = tooltip.offsetWidth;
+                  const tooltipHeight = tooltip.offsetHeight;
+                  const viewportWidth = window.innerWidth;
+                  const viewportHeight = window.innerHeight;
+
+                  let finalX = tooltipX;
+                  let finalY = tooltipY;
+
+                  if (finalX + tooltipWidth > viewportWidth) {
+                       finalX = viewportWidth - tooltipWidth - 10; // Shift left
+                  }
+                   if (finalY < 0) {
+                      finalY = 10; // Shift down if going off top
+                   } else if (finalY + tooltipHeight > viewportHeight) {
+                      finalY = viewportHeight - tooltipHeight - 10; // Shift up
+                   }
+
+
+                  tooltip.style.left = finalX + "px";
+                  tooltip.style.top = finalY + "px";
+                  tooltip.style.opacity = 1; // Make visible
+
+              } else {
+                  // Data not found for some reason, hide tooltip
+                  tooltip.style.opacity = 0;
+                  intersectedObject = null; // Clear intersected object if data is missing
+              }
+
+          }
+      } else {
+          // If no objects intersected
+          intersectedObject = null; // Clear the intersected object
+
+          // Hide tooltip
+          tooltip.style.opacity = 0;
+      }
+  }
+
+
+  function animate() {
+      requestAnimationFrame(animate); // Loop the animation
+
+      controls.update(); // Only required if controls.enableDamping or controls.autoRotate are set to true
+
+      renderer.render(scene, camera); // Render the scene
+  }
+
+  // Start the initialization
+  init();
+
+</script>
+
+</body>
+</html>
