@@ -340,58 +340,61 @@ func blockchainHandler(w http.ResponseWriter, r *http.Request) {
 
 // transactionHandler receives new transactions via POST requests
 func transactionHandler(w http.ResponseWriter, r *http.Request) {
-	setCORSHeaders(w, r)
-	if r.Method == "OPTIONS" { // Handle preflight
-		w.WriteHeader(http.StatusOK)
-		return
-	}
+    setCORSHeaders(w, r)
+    if r.Method == "OPTIONS" { // Handle preflight
+        w.WriteHeader(http.StatusOK)
+        return
+    }
 
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+    if r.Method != "POST" {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
 
-	body, err := io.ReadAll(r.Body) // Use io.ReadAll
-	if err != nil {
-		http.Error(w, "Error reading request body", http.StatusInternalServerError)
-		log.Printf("Error reading request body: %v", err)
-		return
-	}
+    body, err := io.ReadAll(r.Body) // Use io.ReadAll
+    if err != nil {
+        http.Error(w, "Error reading request body", http.StatusInternalServerError)
+        log.Printf("Error reading request body: %v", err)
+        return
+    }
 
-	var txInput TransactionInput
-	err = json.Unmarshal(body, &txInput)
-	if err != nil {
-		http.Error(w, "Error decoding request body: Invalid JSON", http.StatusBadRequest)
-		log.Printf("Error decoding request body: %v", err)
-		return
-	}
+    var txInput TransactionInput
+    err = json.Unmarshal(body, &txInput)
+    if err != nil {
+        http.Error(w, "Error decoding request body: Invalid JSON", http.StatusBadRequest)
+        log.Printf("Error decoding request body: %v", err)
+        return
+    }
 
-	// Basic validation
-	if txInput.Sender == "" || txInput.Recipient == "" || txInput.Amount <= 0 {
-		http.Error(w, "Invalid transaction data: Sender, Recipient, and Amount (must be > 0) are required", http.StatusBadRequest)
-		log.Printf("Invalid transaction data received: %+v", txInput)
-		return
-	}
+    // Basic validation
+    if txInput.Sender == "" || txInput.Recipient == "" || txInput.Amount <= 0 {
+        http.Error(w, "Invalid transaction data: Sender, Recipient, and Amount (must be > 0) are required", http.StatusBadRequest)
+        log.Printf("Invalid transaction data received: %+v", txInput)
+        return
+    }
 
-	// Create the full Transaction object (server generates timestamp and ID)
-	newTx := Transaction{
-		Sender:    txInput.Sender,
-		Recipient: txInput.Recipient,
-		Amount:    txInput.Amount,
-		Timestamp: time.Now().Format(time.RFC3339Nano), // Server timestamp
-	}
-	newTx.ID = generateTransactionID(newTx) // Server generates ID
+    // Create the full Transaction object (server generates timestamp and ID)
+    newTx := Transaction{
+        Sender:    txInput.Sender,
+        Recipient: txInput.Recipient,
+        Amount:    txInput.Amount,
+        Timestamp: time.Now().Format(time.RFC3339Nano), // Server timestamp
+    }
+    newTx.ID = generateTransactionID(newTx) // Server generates ID
 
-	// Add the transaction to the pending pool safely
-	txMutex.Lock()
-	pendingTransactions = append(pendingTransactions, newTx)
-	txMutex.Unlock()
+    // Add the transaction to the pending pool safely
+    txMutex.Lock()
+    pendingTransactions = append(pendingTransactions, newTx)
+    txMutex.Unlock()
 
-	log.Printf("Received new transaction: %+v. %d pending transactions.", newTx, len(pendingTransactions))
+    log.Printf("Received new transaction: %+v. %d pending transactions.", newTx, len(pendingTransactions))
 
-	w.WriteHeader(http.StatusCreated)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Transaction received and added to pool", "transactionID": newTx.ID})
+    w.WriteHeader(http.StatusCreated)
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{"message": "Transaction received and added to pool", "transactionID": newTx.ID})
+
+    // Introduce a small delay after releasing the mutex
+    time.Sleep(1 * time.Millisecond)
 }
 
 
@@ -596,6 +599,7 @@ func main() {
 
 			// Mining loop for Mode 3
 			for i := 0; i < totalBlocksToProcess; i++ {
+				time.Sleep(500 * time.Millisecond)
 				lastBlock := Blockchain[len(Blockchain)-1]
 
 				// --- Collect transactions from the pending pool ---
@@ -620,6 +624,7 @@ func main() {
 				if isBlockValid(newBlock, lastBlock, difficulty) {
 					Blockchain = append(Blockchain, newBlock)
                     fmt.Printf("Successfully added block %d with %d transactions.\n", newBlock.Index, len(newBlock.Transactions))
+					time.Sleep(100 * time.Millisecond) // Was 50ms, adjusted slightly
 				} else {
 					log.Println("Error: Automatic mining (Mode 3) created an invalid block!")
 					// Optional: Decide how to handle this - retry mining? log and skip?

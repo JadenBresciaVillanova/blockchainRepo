@@ -7,6 +7,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import jakarta.annotation.PostConstruct; // Use jakarta for Spring Boot 3+
+
 import java.util.Random;
 
 @Service
@@ -17,19 +19,39 @@ public class TransactionScheduler {
     @Value("${blockchain.node.transaction-url}")
     private String blockchainNodeTransactionUrl;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    // Note: The hardcoded fixedDelay=2000 in @Scheduled will be used
+    // unless you change it to @Scheduled(fixedDelayString = "${scheduler.fixed-delay-ms}")
+    // However, this doesn't explain why it's not running AT ALL.
+
+    private final RestTemplate restTemplate = new RestTemplate(); // Consider letting Spring manage this if complex config needed later
 
     private final Random random = new Random();
     private final String[] parties = {"Alice", "Bob", "Charlie", "David", "Eve", "Miner"};
 
+    // Add this method to check property injection
+    @PostConstruct
+    public void init() {
+        logger.info("TransactionScheduler bean initialized.");
+        logger.info("Configured blockchain.node.transaction-url: {}", blockchainNodeTransactionUrl);
+        if (blockchainNodeTransactionUrl == null || blockchainNodeTransactionUrl.isEmpty() || !blockchainNodeTransactionUrl.equals("http://localhost:8081/transaction")) {
+             logger.error("CRITICAL ERROR: blockchain.node.transaction-url property was NOT injected correctly or is unexpected!");
+        }
+    }
 
-    @Scheduled(fixedDelay = 2000) // Try a direct integer value
+
+    @Scheduled(fixedDelay = 2000) // Using hardcoded value for now
     public void sendRandomTransaction() {
-    logger.info("Attempting to send transaction (Scheduler is running)");
-    // ... rest of the method
+        // Add a log right at the start of the method
+        logger.info("Attempting to send transaction (Scheduler method invoked)");
 
+        // Check if URL is valid before attempting to send
+        if (blockchainNodeTransactionUrl == null || blockchainNodeTransactionUrl.isEmpty()) {
+             logger.error("blockchain.node.transaction-url is not set. Skipping transaction.");
+             return;
+        }
 
-        // Generate a random transaction
+        // ... rest of your existing sendRandomTransaction method
+         // Generate a random transaction
         String sender = parties[random.nextInt(parties.length)];
         String recipient = parties[random.nextInt(parties.length)];
 
