@@ -171,7 +171,7 @@
 
   // Base Colors (Hex format)
   const COLOR_GENESIS = 0x555555; // Dark grey for Genesis
-  const COLOR_MINED_VALID = 0x28a745; // Green for successfully mined blocks (matches progress bar)
+  const COLOR_MINED_VALID = 0x2085ff; // Green for successfully mined blocks (matches progress bar)
   // Note: Since index2.html is only for Mode 3, we primarily expect Valid PoW blocks and Genesis.
   // We'll keep the INVALID_POW color logic just in case, but it's less likely to be seen here
   // unless a block from Mode 1 gets into the chain data somehow (which shouldn't happen if modes are distinct).
@@ -181,7 +181,7 @@
   // HSL Lightness Configuration
   // Mined blocks lightness scales with TX count
   const MINED_LIGHTNESS_MIN = 0.3; // HSL Lightness at MIN_TX_COUNT_FOR_SCALE (or 1 tx)
-  const MINED_LIGHTNESS_MAX = 0.7; // HSL Lightness at MAX_TX_COUNT_FOR_SCALE
+  const MINED_LIGHTNESS_MAX = 0.7; // HSL Lightness at MAX_TX_COUNT
   // Invalid PoW/Genesis blocks have random lightness variation
   const OTHER_LIGHTNESS_VARIATION_RANGE = 0.2; // Random variation for non-mined blocks (+/- range)
 
@@ -381,69 +381,75 @@
 
   // The init function sets up the Three.js scene and starts the visualization
   function init() {
-      // Initialize Three.js related variables
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0xf0f0f0); // Light grey background
+    // Initialize Three.js related variables
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x181818); // Black background
 
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.z = 20; // Start camera further back
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 20; // Start camera further back
 
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement); // Add renderer canvas to the DOM
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement); // Add renderer canvas to the DOM
 
-      // Add lighting
-      const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
-      scene.add(ambientLight);
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7); // Brighter directional light
-      directionalLight.position.set(1, 1, 1).normalize(); // Position light from top-right-front
-      scene.add(directionalLight);
+    // Add lighting
+    const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7); // Brighter directional light
+    directionalLight.position.set(1, 1, 1).normalize(); // Position light from top-right-front
+    scene.add(directionalLight);
 
-      // Initialize tooltip element
-      tooltip = document.getElementById('block-tooltip');
-      if (!tooltip) {
-          console.error("Tooltip element #block-tooltip not found!");
-          // Fallback: Create it if it's somehow missing
-          tooltip = document.createElement('div');
-          tooltip.id = 'block-tooltip';
-          tooltip.classList.add('tooltip');
-          document.body.appendChild(tooltip);
-      }
+    // Add a floor
+    const floorGeometry = new THREE.PlaneGeometry(100, 100); // Width and height of the floor
+    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 }); // Dark grey floor
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = -Math.PI / 2; // Rotate to make it horizontal
+    floor.position.y = -5; // Position slightly below the blocks
+    scene.add(floor);
 
-      // Get references to status elements
-      minedCountElement = document.getElementById('mined-count');
-      progressBarContainerElement = document.getElementById('mining-progress-container');
-      progressBarElement = document.getElementById('mining-progress-bar');
-      miningMessageElement = document.getElementById('mining-message');
+    // Initialize tooltip element
+    tooltip = document.getElementById('block-tooltip');
+    if (!tooltip) {
+        console.error("Tooltip element #block-tooltip not found!");
+        // Fallback: Create it if it's somehow missing
+        tooltip = document.createElement('div');
+        tooltip.id = 'block-tooltip';
+        tooltip.classList.add('tooltip');
+        document.body.appendChild(tooltip);
+    }
 
-      // Initial state for status elements
-      minedCountElement.textContent = 'Blocks: 0/0';
-      progressBarContainerElement.style.display = 'block'; // Show progress bar container
-      progressBarElement.style.width = '0%'; // Reset progress bar
-      miningMessageElement.textContent = 'Waiting for data...'; // Default message
+    // Get references to status elements
+    minedCountElement = document.getElementById('mined-count');
+    progressBarContainerElement = document.getElementById('mining-progress-container');
+    progressBarElement = document.getElementById('mining-progress-bar');
+    miningMessageElement = document.getElementById('mining-message');
 
-
-      // Initialize raycaster and mouse for interaction
-      raycaster = new THREE.Raycaster();
-      mouse = new THREE.Vector2();
-
-      // OrbitControls for navigation
-      controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true; // Smooth camera movement
-      controls.dampingFactor = 0.25;
-      controls.screenSpacePanning = false;
-      // controls.maxPolarAngle = Math.PI / 2; // Optional: Restrict vertical rotation
+    // Initial state for status elements
+    minedCountElement.textContent = 'Blocks: 0/0';
+    progressBarContainerElement.style.display = 'block'; // Show progress bar container
+    progressBarElement.style.width = '0%'; // Reset progress bar
+    miningMessageElement.textContent = 'Waiting for data...'; // Default message
 
 
-      // Event Listeners
-      window.addEventListener('resize', onWindowResize); // Handle window resizing
-      renderer.domElement.addEventListener('mousemove', onMouseMove); // For tooltip interaction
+    // Initialize raycaster and mouse for interaction
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
 
-      // Animation Loop
-      animate();
+    // OrbitControls for navigation
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; // Smooth camera movement
+    controls.dampingFactor = 0.25;
+    controls.screenSpacePanning = false;
 
-      // Start monitoring blockchain (fetching periodically)
-      startMonitoring();
+    // Event Listeners
+    window.addEventListener('resize', onWindowResize); // Handle window resizing
+    renderer.domElement.addEventListener('mousemove', onMouseMove); // For tooltip interaction
+
+    // Animation Loop
+    animate();
+
+    // Start monitoring blockchain (fetching periodically)
+    startMonitoring();
   }
 
 
@@ -451,189 +457,103 @@
       const blockSpacing = BLOCK_SPACING; // Use the defined constant
 
       // Dispose of old textures, materials, and geometry before clearing meshes/arrows
-      // Iterate over a copy of blockMeshes as we modify the array
       [...blockMeshes].forEach(mesh => {
-          if (mesh.material) {
-              const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-              materials.forEach(material => {
-                  if (material.map) material.map.dispose(); // Dispose texture
-                  material.dispose(); // Dispose material
-              });
-          }
-          // We are now using a single geometry instance 'blockGeometry' created inside visualizeBlockchain
-          // It will be implicitly overwritten/garbage collected on the next call or when the page unloads.
-          // Explicitly disposing it here inside the loop is incorrect as other meshes might still need it.
-          // If we were creating a *new* geometry for *each* block, we would dispose it here.
-          // Since we create one *before* the loop, we rely on the browser's garbage collection.
-          // A more robust pattern for a long-running app would be to manage geometry lifecycle more carefully.
-          // For this visualization, recreating one geometry per update is acceptable.
           scene.remove(mesh);
       });
       blockMeshes.length = 0; // Clear the array
       blockDataMap.clear(); // Clear the map
 
       arrowHelpers.forEach(arrow => {
-          // ArrowHelper dispose internally handles its geometry and materials
-          arrow.dispose();
-          scene.remove(arrow);
+        scene.remove(arrow);
       });
       arrowHelpers.length = 0; // Clear the array
 
-      // Create a single geometry instance for all blocks for this visualization update
       const blockGeometry = new THREE.BoxGeometry(BASE_BLOCK_SIZE, BASE_BLOCK_SIZE, BASE_BLOCK_SIZE);
 
-
-      // Track previous block's position and scale to calculate current block's position
       let currentX = 0;
-      let prevBlockHalfWidth = 0; // Half width of the previous block (scaled)
+      let prevBlockHalfWidth = 0;
 
       data.forEach((block, index) => {
-          // Add a check for null/undefined block objects in the array
           if (!block) {
               console.warn(`Skipping null or undefined block object at index ${index}`);
-              return; // Skip this iteration if the block object itself is bad
+              return;
           }
 
-          // Get the color based on the block's properties (PoW validity, transaction count)
+          // Get the block color
           const blockColor = getBlockColor(block);
 
-          // Create texture with the block index number and the determined background color
-          // createTextTexture now handles potential undefined Index safely
-          // Use lowercase 'index' property
+          // Create texture with the block index number
           const indexTexture = createTextTexture(block.index, blockColor);
 
-           // Create a material for this block using the textured canvas
+          // Create the block material
           const blockMaterial = new THREE.MeshPhongMaterial({
-               color: 0xffffff, // White material color so the texture colors show through directly
-               shininess: 50, // How shiny the surface is
-               map: indexTexture, // The texture with text on a colored background
-               transparent: false, // Not transparent
-               alphaTest: 0.1 // Helps avoid rendering issues at edges of texture
+              color: 0xffffff, // White material color so the texture colors show through directly
+              shininess: 50,
+              map: indexTexture, // The texture with text on a colored background
+              transparent: false,
+              alphaTest: 0.1,
           });
 
           // Create the block mesh
-          const blockMesh = new THREE.Mesh(blockGeometry, blockMaterial); // All blocks share this geometry instance
+          const blockMesh = new THREE.Mesh(blockGeometry, blockMaterial);
 
-
-          // --- Calculate Scale based on Transaction Count ---
+          // Scale the block based on transaction count
           const txCount = getTransactionCount(block);
-          // Scale from MIN_TX_COUNT_FOR_SCALE (0 for genesis) to MAX_TX_COUNT_FOR_SCALE (20)
-          const scaleTxCount = Math.max(MIN_TX_COUNT_FOR_SCALE, Math.min(MAX_TX_COUNT_FOR_SCALE, txCount)); // Clamp within range
-          const scale = mapRange(scaleTxCount, MIN_TX_COUNT_FOR_SCALE, MAX_TX_COUNT_FOR_SCALE, MIN_BLOCK_SCALE, MAX_BLOCK_SCALE);
+          const scale = mapRange(txCount, MIN_TX_COUNT_FOR_SCALE, MAX_TX_COUNT_FOR_SCALE, MIN_BLOCK_SCALE, MAX_BLOCK_SCALE);
           blockMesh.scale.set(scale, scale, scale);
 
-
-          // --- Calculate Position based on previous block's size and scale ---
+          // Position the block
           const currentBlockHalfWidth = (BASE_BLOCK_SIZE * scale) / 2;
           if (index > 0) {
-              // Position relative to the right face of the previous block + half width of current block + spacing
               currentX += prevBlockHalfWidth + currentBlockHalfWidth + blockSpacing;
           } else {
-              // First block starts at X=0 (its center will be at 0 if prevBlockHalfWidth is 0)
-              currentX = 0; // Or currentBlockHalfWidth to align its left face to the origin
+              currentX = 0;
           }
-
-          blockMesh.position.x = currentX;
-          blockMesh.position.y = 0; // Keep blocks on the 'ground'
-          blockMesh.position.z = 0;
-
-
-          // Store current block's half width for the next iteration
+          blockMesh.position.set(currentX, 0, 0);
           prevBlockHalfWidth = currentBlockHalfWidth;
 
+          scene.add(blockMesh);
+          blockMeshes.push(blockMesh);
+          blockDataMap.set(blockMesh.uuid, block);
 
-          scene.add(blockMesh); // Add the mesh to the scene
-          blockMeshes.push(blockMesh); // Add to the list for raycasting
-          blockDataMap.set(blockMesh.uuid, block); // Store data reference using mesh UUID
+          // --- Add Glow Effect for Block ---
+          const blockLight = new THREE.PointLight(blockColor.getHex(), 100, 7); // Color, intensity, distance
+          blockLight.position.set(currentX, 0, 0); // Position light at the block's location
+          scene.add(blockLight);
       });
 
-      // The shared geometry instance 'blockGeometry' created at the start of visualizeBlockchain
-      // is not explicitly disposed here. It will be eligible for garbage collection when
-      // the next call to visualizeBlockchain creates a *new* one, or when the page unloads.
-
-
-      // --- Adjust Camera Position and Controls Target ---
-      if (data.length > 0) {
-           // Calculate the overall span of the chain for camera positioning
-           const firstBlockMesh = blockMeshes[0];
-           const lastBlockMesh = blockMeshes[blockMeshes.length - 1];
-           const firstBlockX = firstBlockMesh.position.x - (BASE_BLOCK_SIZE * firstBlockMesh.scale.x / 2);
-           const lastBlockX = lastBlockMesh.position.x + (BASE_BLOCK_SIZE * lastBlockMesh.scale.x / 2);
-           const chainLengthSpan = lastBlockX - firstBlockX;
-           const centerOfChainX = firstBlockX + chainLengthSpan / 2;
-
-
-           camera.position.x = centerOfChainX; // Center camera on the chain X span
-           camera.position.y = Math.max(5, chainLengthSpan * 0.08); // Lift camera slightly, scale with chain length
-           camera.position.z = Math.max(chainLengthSpan * 0.8, 20); // Position camera back Z, scale with chain length (min 20)
-
-           controls.target.set(centerOfChainX, 0, 0); // Set controls target to center of chain
-
-           // --- Explicitly set zoom limits ---
-           // Set maxDistance relative to the length of the chain span + buffer
-           controls.maxDistance = chainLengthSpan * 2 + 50;
-           controls.minDistance = 1; // Allow zooming in close, but not inside the block
-
-           controls.update(); // Apply changes to controls
-      } else {
-           // Reset camera for no blocks scenario (e.g., only genesis visible initially)
-           camera.position.set(0, 5, 20);
-           controls.target.set(0, 0, 0);
-           // Reset maxDistance as well if no blocks
-           controls.maxDistance = 1000; // A reasonable default max distance
-            controls.minDistance = 1;
-           controls.update();
-           document.getElementById('info').innerHTML = 'No blocks found in the blockchain.';
-      }
-
-
-      // --- Create Links (connecting arrows) ---
-      const arrowColor = 0x343a40; // Dark grey color
-      // Adjust head size relative to average block size and spacing
-      // Calculate average scale based on the average number of transactions (approx half of max)
-      const averageScale = mapRange(MAX_TX_COUNT_FOR_SCALE / 2, MIN_TX_COUNT_FOR_SCALE, MAX_TX_COUNT_FOR_SCALE, MIN_BLOCK_SCALE, MAX_BLOCK_SCALE);
-      const averageBlockSize = BASE_BLOCK_SIZE * averageScale;
-
-      // Base dimensions for arrow head, scale slightly with block size
-      const baseArrowHeadLength = averageBlockSize * 0.3;
-      const baseArrowHeadWidth = averageBlockSize * 0.2;
-
+      const arrowColor = 0x19bcf4; // White color for arrows
+      const baseArrowHeadLength = BASE_BLOCK_SIZE * 0.3;
+      const baseArrowHeadWidth = BASE_BLOCK_SIZE * 0.2;
 
       for (let i = 1; i < data.length; i++) {
           const prevBlockMesh = blockMeshes[i - 1];
           const currentBlockMesh = blockMeshes[i];
 
-           // Check if meshes exist (they should if blocks existed and weren't skipped)
-           if (!prevBlockMesh || !currentBlockMesh) {
-               console.warn(`Skipping arrow creation due to missing mesh for index ${i}`);
-               continue; // Skip this arrow if either mesh is missing
-           }
+          if (!prevBlockMesh || !currentBlockMesh) {
+              console.warn(`Skipping arrow creation due to missing mesh for index ${i}`);
+              continue;
+          }
 
-
-          // Calculate the start and end points of the arrow in world space
-          // Start point: Right face of the previous block (+ half * scaled size in X)
           const origin = prevBlockMesh.position.clone().add(new THREE.Vector3(prevBlockMesh.scale.x * BASE_BLOCK_SIZE / 2, 0, 0));
-          // End point: Left face of the current block (- half * scaled size in X)
           const endPoint = currentBlockMesh.position.clone().add(new THREE.Vector3(-currentBlockMesh.scale.x * BASE_BLOCK_SIZE / 2, 0, 0));
 
-          // Calculate the direction vector and length
           const direction = new THREE.Vector3().subVectors(endPoint, origin);
           const length = direction.length();
-          direction.normalize(); // Normalize the direction vector
+          direction.normalize();
 
-           // Create the ArrowHelper only if there is distance to cover
-          if (length > 0.1) { // Add a small threshold
+          if (length > 0.1) {
               const arrowHelper = new THREE.ArrowHelper(
-                  direction, // Direction vector
-                  origin,    // Origin point
-                  length,    // Length of the shaft
-                  arrowColor, // Color
-                  baseArrowHeadLength * Math.min(length / baseArrowHeadLength, 1), // Scaled head length (max = shaft length)
-                  baseArrowHeadWidth * Math.min(length / baseArrowHeadWidth, 1)   // Scaled head width (max = shaft length)
+                  direction,
+                  origin,
+                  length,
+                  arrowColor,
+                  baseArrowHeadLength * Math.min(length / baseArrowHeadLength, 1),
+                  baseArrowHeadWidth * Math.min(length / baseArrowHeadWidth, 1)
               );
 
-              scene.add(arrowHelper); // Add arrow to the scene
-              arrowHelpers.push(arrowHelper); // Store the arrow helper for disposal
+              scene.add(arrowHelper);
+              arrowHelpers.push(arrowHelper);
           }
       }
   }

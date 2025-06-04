@@ -1,9 +1,15 @@
-go run main.go
-3 --> 10, b for multi, 
+##Instructions to Run
+
+1. Open 2 Terminals (Ideally in Same VS Code Window) 
+2. CD one terminal to blockchainRepo/transaction-scheduler and the other to blockchainRepo 
+3. For transaction-scheduler, run "./gradlew clean build" and then "./gradlew bootRun"
+4. For blockchainRepo, enter "go run main.go" (may have to cancel it first time)
+
+##Ideal Settings
+1. Enter 3 then 10 then b
+
+##Additional Commands
+1. To add your own transaction to the block enter: " 
 curl -X POST http://localhost:8081/transaction -H "Content-Type: application/json" -d "{ \"sender\": \"Alice\", \"recipient\": \"Bob\", \"amount\": 10 }"
-
-check blocks
-
-https://start.spring.io/
-
+"
 

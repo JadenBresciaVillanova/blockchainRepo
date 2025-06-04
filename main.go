@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io" // Changed from ioutil to io for ReadAll
+	"io" 
 	"log"
 	"math"
 	"math/rand"
@@ -30,7 +30,7 @@ type Transaction struct {
 	Sender    string `json:"sender"`
 	Recipient string `json:"recipient"`
 	Amount    int    `json:"amount"`
-	Timestamp string `json:"timestamp"` // Timestamp of the transaction
+	Timestamp string `json:"timestamp"`
 }
 
 // Block represents a block in the blockchain
@@ -53,7 +53,6 @@ type TransactionInput struct {
 
 // Function to generate a simple unique ID for a transaction (using hash)
 func generateTransactionID(tx Transaction) string {
-	// Ensure fields used for ID generation are consistent
 	record := tx.Sender + tx.Recipient + strconv.Itoa(tx.Amount) + tx.Timestamp
 	h := sha256.New()
 	h.Write([]byte(record))
@@ -80,7 +79,6 @@ func transactionsToString(txs []Transaction) string {
 		sb.WriteString(tx.Sender)
 		sb.WriteString(tx.Recipient)
 		sb.WriteString(strconv.Itoa(tx.Amount))
-		// sb.WriteString(tx.Timestamp) // Decide if timestamp is part of hash input
 	}
 	return sb.String()
 }
@@ -88,7 +86,6 @@ func transactionsToString(txs []Transaction) string {
 // calculateHash generates the SHA256 hash for a block
 func calculateHash(block Block) string {
 	transactionsStr := transactionsToString(block.Transactions)
-
 	record := strconv.Itoa(block.Index) + block.Timestamp + transactionsStr + block.PrevHash + strconv.Itoa(block.Nonce)
 	h := sha256.New()
 	h.Write([]byte(record))
@@ -135,7 +132,7 @@ func isBlockValid(newBlock, oldBlock Block, difficulty int) bool {
 func worker(ctx context.Context, startNonce, endNonce int, oldBlock Block, transactions []Transaction, difficulty int, resultChan chan<- Block) {
 	candidateBlock := Block{
 		Index:     oldBlock.Index + 1,
-		Timestamp: time.Now().String(), // Capture timestamp when work starts
+		Timestamp: time.Now().String(), 
 		Transactions: transactions,
 		PrevHash:  oldBlock.Hash,
 		Nonce:     startNonce,
@@ -143,7 +140,6 @@ func worker(ctx context.Context, startNonce, endNonce int, oldBlock Block, trans
 
 	// Sort transactions ONCE per block candidate for deterministic hashing
 	sortTransactions(candidateBlock.Transactions)
-
 
 	for nonce := startNonce; nonce <= endNonce; nonce++ {
 		select {
